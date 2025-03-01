@@ -2,6 +2,7 @@ const express = require("express");
 const cors = require("cors");
 const redis = require("redis");
 const puppeteer = require("puppeteer-core");
+const chromium = require("chrome-aws-lambda");
 const cheerio = require("cheerio");
 
 const app = express();
@@ -42,8 +43,10 @@ app.get("/proxy/fetch", async (req, res) => {
 
         // 🔹 Scrape Website Data
         const browser = await puppeteer.launch({
-            executablePath: "/usr/bin/google-chrome-stable",
-            args: ["--no-sandbox", "--disable-setuid-sandbox"]
+            executablePath: await chromium.executablePath,
+            args: chromium.args,
+            defaultViewport: chromium.defaultViewport,
+            headless: chromium.headless
         });
 
         const page = await browser.newPage();
@@ -68,5 +71,5 @@ app.get("/proxy/fetch", async (req, res) => {
 });
 
 // ✅ Start Server
-const PORT = 5000;
+const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
