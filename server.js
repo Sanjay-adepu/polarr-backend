@@ -8,13 +8,13 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// 🔹 Manually set Redis URL (Use your actual Redis server URL if hosted)
-const REDIS_URL = "redis://127.0.0.1:6379"; // Change this if using a remote Redis server
+// 🔹 Upstash Redis URL (Replace with your actual Upstash Redis URL)
+const REDIS_URL = "redis://default:AXzeAAIjcDEzMzNlODE2YjViNWU0ZWU2OGYzYTc5YzVmYzNhY2Q2ZHAxMA@modest-corgi-31966.upstash.io:6379";
 
 // ✅ Redis Setup
 const redisClient = redis.createClient({
     url: REDIS_URL,
-    socket: { tls: REDIS_URL.startsWith("rediss://") } // Enable TLS if using "rediss://"
+    socket: { tls: true } // Upstash requires TLS
 });
 
 redisClient.on("error", (err) => console.error("❌ Redis Error:", err));
