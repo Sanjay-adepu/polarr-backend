@@ -8,18 +8,22 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Redis Setup with Render Support
+// 🔹 Manually set Redis URL (Use your actual Redis server URL if hosted)
+const REDIS_URL = "redis://127.0.0.1:6379"; // Change this if using a remote Redis server
+
+// ✅ Redis Setup
 const redisClient = redis.createClient({
-    url: process.env.REDIS_URL || "redis://127.0.0.1:6379"
+    url: REDIS_URL,
+    socket: { tls: REDIS_URL.startsWith("rediss://") } // Enable TLS if using "rediss://"
 });
 
-redisClient.on("error", (err) => console.error("Redis Error:", err));
+redisClient.on("error", (err) => console.error("❌ Redis Error:", err));
 
 redisClient.connect()
     .then(() => console.log("✅ Redis Connected"))
-    .catch(err => console.error("Redis Connection Error:", err));
+    .catch(err => console.error("❌ Redis Connection Failed:", err));
 
-// Proxy Route with Scraping & Redis Caching
+// ✅ Proxy Route with Scraping & Redis Caching
 app.get("/proxy/fetch", async (req, res) => {
     const { url } = req.query;
     if (!url) return res.status(400).json({ error: "URL is required" });
@@ -27,7 +31,7 @@ app.get("/proxy/fetch", async (req, res) => {
     try {
         console.log(`Fetching URL: ${url}`);
 
-        // Check Redis Cache
+        // 🔹 Check Redis Cache
         const cachedData = await redisClient.get(url);
         if (cachedData) {
             console.log("✅ Cache hit");
@@ -36,22 +40,22 @@ app.get("/proxy/fetch", async (req, res) => {
 
         console.log("🚀 Cache miss, scraping...");
 
-        // Scrape Website Data
+        // 🔹 Scrape Website Data
         const browser = await puppeteer.launch({
-            executablePath: process.env.CHROME_EXECUTABLE_PATH || "/usr/bin/google-chrome-stable",
+            executablePath: "/usr/bin/google-chrome-stable",
             args: ["--no-sandbox", "--disable-setuid-sandbox"]
         });
 
         const page = await browser.newPage();
-        await page.goto(url, { waitUntil: "networkidle2", timeout: 30000 }); // Increased timeout
+        await page.goto(url, { waitUntil: "networkidle2", timeout: 30000 });
         const content = await page.content();
         await browser.close();
 
-        // Parse Content with Cheerio
+        // 🔹 Parse Content with Cheerio
         const $ = cheerio.load(content);
         const pageData = { title: $("title").text(), html: $.html() };
 
-        // Cache in Redis for 5 mins
+        // 🔹 Cache in Redis for 5 mins
         await redisClient.setEx(url, 300, JSON.stringify(pageData));
 
         console.log("✅ Data cached successfully");
@@ -63,6 +67,6 @@ app.get("/proxy/fetch", async (req, res) => {
     }
 });
 
-// Start Server
-const PORT = process.env.PORT || 5000;
+// ✅ Start Server
+const PORT = 5000;
 app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
