@@ -1,7 +1,7 @@
 const express = require("express");
-const cors = require("cors"); 
+const cors = require("cors");
 const redis = require("redis");
-const puppeteer = require("puppeteer");
+const { chromium } = require("playwright");
 const cheerio = require("cheerio");
 
 const app = express();
@@ -40,12 +40,8 @@ app.get("/proxy/fetch", async (req, res) => {
 
         console.log("🚀 Cache miss, scraping...");
 
-        // 🔹 Launch Puppeteer (Full Puppeteer, No chrome-aws-lambda)
-        const browser = await puppeteer.launch({
-            args: ["--no-sandbox", "--disable-setuid-sandbox"],
-            headless: "new"
-        });
-
+        // 🔹 Launch Playwright Chromium (Faster & More Reliable)
+        const browser = await chromium.launch({ headless: true });
         const page = await browser.newPage();
         await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
         const content = await page.content();
