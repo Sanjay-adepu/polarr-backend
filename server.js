@@ -1,8 +1,7 @@
 const express = require("express");
 const cors = require("cors");
 const redis = require("redis");
-const puppeteer = require("puppeteer-core");
-const chromium = require("chrome-aws-lambda");
+const puppeteer = require("puppeteer");
 const cheerio = require("cheerio");
 
 const app = express();
@@ -41,12 +40,10 @@ app.get("/proxy/fetch", async (req, res) => {
 
         console.log("🚀 Cache miss, scraping...");
 
-        // 🔹 Launch Puppeteer (Works on Render & AWS)
+        // 🔹 Launch Puppeteer (Full Puppeteer, No chrome-aws-lambda)
         const browser = await puppeteer.launch({
-            executablePath: (await chromium.executablePath) || "/usr/bin/google-chrome-stable",
-            args: [...chromium.args, "--no-sandbox", "--disable-setuid-sandbox"],
-            defaultViewport: chromium.defaultViewport,
-            headless: true
+            args: ["--no-sandbox", "--disable-setuid-sandbox"],
+            headless: "new"
         });
 
         const page = await browser.newPage();
