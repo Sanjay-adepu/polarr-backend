@@ -41,16 +41,23 @@ app.get("/proxy/fetch", async (req, res) => {
 
         console.log("🚀 Cache miss, scraping...");
 
-        // 🔹 Scrape Website Data
+        // 🔹 Launch Puppeteer with chrome-aws-lambda
         const browser = await puppeteer.launch({
-            executablePath: await chromium.executablePath,
-            args: chromium.args,
-            defaultViewport: chromium.defaultViewport,
-            headless: chromium.headless
+            executablePath: await chromium.executablePath || "/usr/bin/google-chrome-stable",
+            args: [
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",
+                "--single-process",
+                "--headless",
+                "--disable-gpu",
+            ],
+            headless: true,
+            ignoreHTTPSErrors: true
         });
 
         const page = await browser.newPage();
-        await page.goto(url, { waitUntil: "networkidle2", timeout: 30000 });
+        await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
         const content = await page.content();
         await browser.close();
 
