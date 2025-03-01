@@ -4,7 +4,7 @@
   "description": "High-Traffic Website Accelerator Backend",
   "main": "server.js",
   "scripts": {
-    "postinstall": "npx playwright install --with-deps",
+    "postinstall": "npx playwright install chromium",
     "start": "node server.js",
     "dev": "nodemon server.js"
   },
