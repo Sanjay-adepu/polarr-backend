@@ -1,7 +1,7 @@
 const express = require("express");
 const cors = require("cors");
 const redis = require("redis");
-const puppeteer = require("puppeteer-core");
+const puppeteer = require("puppeteer");
 const cheerio = require("cheerio");
 
 const app = express();
