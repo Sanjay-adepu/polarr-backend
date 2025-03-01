@@ -10,7 +10,7 @@ app.use(cors());
 app.use(express.json());
 
 // 🔹 Upstash Redis URL (Replace with your actual Upstash Redis URL)
-const REDIS_URL = "redis://default:AXzeAAIjcDEzMzNlODE2YjViNWU0ZWU2OGYzYTc5YzVmYzNhY2Q2ZHAxMA@modest-corgi-31966.upstash.io:6379";
+const REDIS_URL = process.env.REDIS_URL || "redis://default:AXzeAAIjcDEzMzNlODE2YjViNWU0ZWU2OGYzYTc5YzVmYzNhY2Q2ZHAxMA@modest-corgi-31966.upstash.io:6379";
 
 // ✅ Redis Setup
 const redisClient = redis.createClient({
@@ -41,13 +41,13 @@ app.get("/proxy/fetch", async (req, res) => {
 
         console.log("🚀 Cache miss, scraping...");
 
-        // 🔹 Launch Puppeteer with chrome-aws-lambda
+        // 🔹 Launch Puppeteer (Works on Render & AWS)
         const browser = await puppeteer.launch({
-    executablePath: await chromium.executablePath || "/usr/bin/google-chrome-stable",
-    args: [...chromium.args, "--no-sandbox", "--disable-setuid-sandbox"],
-    defaultViewport: chromium.defaultViewport,
-    headless: chromium.headless
-});
+            executablePath: (await chromium.executablePath) || "/usr/bin/google-chrome-stable",
+            args: [...chromium.args, "--no-sandbox", "--disable-setuid-sandbox"],
+            defaultViewport: chromium.defaultViewport,
+            headless: true
+        });
 
         const page = await browser.newPage();
         await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
