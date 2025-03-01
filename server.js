@@ -43,18 +43,11 @@ app.get("/proxy/fetch", async (req, res) => {
 
         // 🔹 Launch Puppeteer with chrome-aws-lambda
         const browser = await puppeteer.launch({
-            executablePath: await chromium.executablePath || "/usr/bin/google-chrome-stable",
-            args: [
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-                "--disable-dev-shm-usage",
-                "--single-process",
-                "--headless",
-                "--disable-gpu",
-            ],
-            headless: true,
-            ignoreHTTPSErrors: true
-        });
+    executablePath: await chromium.executablePath || "/usr/bin/google-chrome-stable",
+    args: [...chromium.args, "--no-sandbox", "--disable-setuid-sandbox"],
+    defaultViewport: chromium.defaultViewport,
+    headless: chromium.headless
+});
 
         const page = await browser.newPage();
         await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
