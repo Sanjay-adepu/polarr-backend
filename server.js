@@ -2,31 +2,17 @@ const express = require("express");
 const cors = require("cors");
 const redis = require("redis");
 const { chromium } = require("playwright");
-const fs = require("fs-extra");
-const path = require("path");
+const urlLib = require("url");
 
 const app = express();
-app.use(cors({ origin: "*" }));
+app.use(cors());
 app.use(express.json());
 
-// ✅ Redis Setup
 const REDIS_URL = process.env.REDIS_URL || "redis://default:AXzeAAIjcDEzMzNlODE2YjViNWU0ZWU2OGYzYTc5YzVmYzNhY2Q2ZHAxMA@modest-corgi-31966.upstash.io:6379";
-
-const redisClient = redis.createClient({
-    url: REDIS_URL,
-    socket: { tls: true }
-});
+const redisClient = redis.createClient({ url: REDIS_URL, socket: { tls: true } });
 
 redisClient.on("error", (err) => console.error("❌ Redis Error:", err));
-
-redisClient.connect()
-    .then(() => console.log("✅ Redis Connected"))
-    .catch(err => console.error("❌ Redis Connection Failed:", err));
-
-// ✅ Serve Static Files
-const CACHE_DIR = path.join(__dirname, "cache");
-fs.ensureDirSync(CACHE_DIR);
-app.use("/cache", express.static(CACHE_DIR));
+redisClient.connect().then(() => console.log("✅ Redis Connected")).catch((err) => console.error("❌ Redis Connection Failed:", err));
 
 app.get("/proxy/fetch", async (req, res) => {
     const { url } = req.query;
@@ -35,80 +21,72 @@ app.get("/proxy/fetch", async (req, res) => {
     try {
         console.log(`Fetching URL: ${url}`);
 
-        // ✅ Check Redis Cache  
+        // ✅ Check Redis Cache
         const cachedData = await redisClient.get(url);
         if (cachedData) {
             console.log("✅ Cache hit");
-            return res.sendFile(path.join(CACHE_DIR, `${Buffer.from(url).toString("base64")}.html`));
+            return res.send(cachedData);
         }
 
         console.log("🚀 Cache miss, scraping...");
 
-        // ✅ Launch Headless Browser
-        const browser = await chromium.launch({ headless: true });
-        const page = await browser.newPage();
-        await page.goto(url, { waitUntil: "networkidle", timeout: 60000 });
-
-        // ✅ Capture Page Content  
-        const pageData = await page.evaluate(() => {
-            return {
-                title: document.title,
-                html: document.documentElement.outerHTML
-            };
+        // ✅ Launch Browser
+        const browser = await chromium.launch({
+            headless: true,
+            executablePath: "/opt/render/project/src/node_modules/playwright-core/.local-browsers/chromium-1155/chrome-linux/chrome"
         });
 
-        // ✅ Download Assets
-        const assetPromises = [];
-        const downloadAsset = async (assetUrl, folder) => {
-            try {
-                const response = await page.evaluate(async (url) => {
-                    const res = await fetch(url);
-                    return res.ok ? { buffer: await res.arrayBuffer(), type: res.headers.get("content-type") } : null;
-                }, assetUrl);
+        const page = await browser.newPage();
 
-                if (!response) return null;
-                const ext = response.type.includes("css") ? ".css" : response.type.includes("javascript") ? ".js" : path.extname(assetUrl);
-                const filename = Buffer.from(assetUrl).toString("base64") + ext;
-                const filePath = path.join(CACHE_DIR, folder, filename);
-                fs.ensureDirSync(path.dirname(filePath));
-                fs.writeFileSync(filePath, Buffer.from(response.buffer));
+        // ✅ Intercept Requests to Modify URLs
+        await page.route("**", async (route) => {
+            const request = route.request();
+            const url = request.url();
 
-                return `/cache/${folder}/${filename}`;
-            } catch (err) {
-                console.error(`❌ Failed to download asset: ${assetUrl}`, err);
-                return assetUrl; // Fallback to original URL
+            // Ignore analytics, trackers, or unnecessary requests
+            if (url.includes("google-analytics") || url.includes("ads") || url.includes("tracking")) {
+                return route.abort();
             }
-        };
 
-        const styles = await page.evaluate(() => Array.from(document.styleSheets).map(sheet => sheet.href).filter(Boolean));
-        const scripts = await page.evaluate(() => Array.from(document.scripts).map(script => script.src).filter(Boolean));
-        const images = await page.evaluate(() => Array.from(document.images).map(img => img.src));
+            // Serve static assets through our server to prevent CORS issues
+            if (request.resourceType() === "image" || request.resourceType() === "stylesheet" || request.resourceType() === "script") {
+                return route.continue({ url: `/proxy/static?url=${encodeURIComponent(url)}` });
+            }
 
-        for (let style of styles) assetPromises.push(downloadAsset(style, "styles"));
-        for (let script of scripts) assetPromises.push(downloadAsset(script, "scripts"));
-        for (let image of images) assetPromises.push(downloadAsset(image, "images"));
+            return route.continue();
+        });
 
-        const cachedAssets = await Promise.all(assetPromises);
+        await page.goto(url, { waitUntil: "networkidle", timeout: 60000 });
 
-        // ✅ Rewrite HTML
-        let modifiedHTML = pageData.html;
-        styles.forEach((original, index) => modifiedHTML = modifiedHTML.replace(original, cachedAssets[index]));
-        scripts.forEach((original, index) => modifiedHTML = modifiedHTML.replace(original, cachedAssets[styles.length + index]));
-        images.forEach((original, index) => modifiedHTML = modifiedHTML.replace(original, cachedAssets[styles.length + scripts.length + index]));
-
+        // ✅ Get Full Page Content
+        const pageContent = await page.content();
         await browser.close();
 
-        // ✅ Cache in Redis & Save File
-        const cacheFilePath = path.join(CACHE_DIR, `${Buffer.from(url).toString("base64")}.html`);
-        fs.writeFileSync(cacheFilePath, modifiedHTML);
-        await redisClient.setEx(url, 300, "cached");
+        // ✅ Cache in Redis for 5 mins
+        await redisClient.setEx(url, 300, pageContent);
 
-        console.log("✅ Website cached successfully");
+        console.log("✅ Data cached successfully");
 
-        res.sendFile(cacheFilePath);
+        res.send(pageContent);
     } catch (error) {
         console.error("❌ Scraping Error:", error);
         res.status(500).json({ error: "Failed to fetch website" });
+    }
+});
+
+// ✅ Serve Static Assets (CSS, Images, JS) via Proxy
+app.get("/proxy/static", async (req, res) => {
+    const { url } = req.query;
+    if (!url) return res.status(400).json({ error: "Asset URL is required" });
+
+    try {
+        const response = await fetch(url);
+        const contentType = response.headers.get("content-type");
+        res.set("Content-Type", contentType);
+        res.send(await response.arrayBuffer());
+    } catch (error) {
+        console.error("❌ Error fetching asset:", error);
+        res.status(500).json({ error: "Failed to fetch asset" });
     }
 });
 
