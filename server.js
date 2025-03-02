@@ -2,6 +2,7 @@ const express = require("express");
 const cors = require("cors");
 const redis = require("redis");
 const { chromium } = require("playwright");
+const fetch = require("node-fetch"); // Ensure fetch is available
 const urlLib = require("url");
 
 const app = express();
@@ -30,7 +31,7 @@ app.get("/proxy/fetch", async (req, res) => {
 
         console.log("🚀 Cache miss, scraping...");
 
-        // ✅ Launch Browser
+        // ✅ Launch Playwright Browser
         const browser = await chromium.launch({
             headless: true,
             executablePath: "/opt/render/project/src/node_modules/playwright-core/.local-browsers/chromium-1155/chrome-linux/chrome"
@@ -38,19 +39,24 @@ app.get("/proxy/fetch", async (req, res) => {
 
         const page = await browser.newPage();
 
-        // ✅ Intercept Requests to Modify URLs
-        await page.route("**", async (route) => {
+        // ✅ Modify requests to serve assets via proxy
+        await page.route("**/*", async (route) => {
             const request = route.request();
-            const url = request.url();
+            const reqUrl = request.url();
 
-            // Ignore analytics, trackers, or unnecessary requests
-            if (url.includes("google-analytics") || url.includes("ads") || url.includes("tracking")) {
+            // Allow only valid URLs
+            if (!reqUrl.startsWith("http")) {
+                return route.continue();
+            }
+
+            // Skip unnecessary requests (ads, trackers)
+            if (reqUrl.includes("google-analytics") || reqUrl.includes("ads") || reqUrl.includes("tracking")) {
                 return route.abort();
             }
 
-            // Serve static assets through our server to prevent CORS issues
-            if (request.resourceType() === "image" || request.resourceType() === "stylesheet" || request.resourceType() === "script") {
-                return route.continue({ url: `/proxy/static?url=${encodeURIComponent(url)}` });
+            // Proxy images, CSS, and scripts
+            if (["image", "stylesheet", "script"].includes(request.resourceType())) {
+                return route.continue({ url: `/proxy/static?url=${encodeURIComponent(reqUrl)}` });
             }
 
             return route.continue();
@@ -74,13 +80,15 @@ app.get("/proxy/fetch", async (req, res) => {
     }
 });
 
-// ✅ Serve Static Assets (CSS, Images, JS) via Proxy
+// ✅ Serve Static Assets via Proxy
 app.get("/proxy/static", async (req, res) => {
     const { url } = req.query;
     if (!url) return res.status(400).json({ error: "Asset URL is required" });
 
     try {
         const response = await fetch(url);
+        if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
+
         const contentType = response.headers.get("content-type");
         res.set("Content-Type", contentType);
         res.send(await response.arrayBuffer());
