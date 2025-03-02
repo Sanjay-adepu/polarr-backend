@@ -3,7 +3,7 @@ const cors = require("cors");
 const redis = require("redis");
 const fetch = require("node-fetch");
 
-const app = express();
+const app = express(); 
 
 // ✅ CORS Setup
 app.use(cors({ origin: "http://localhost:5173" }));
