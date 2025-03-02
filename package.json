@@ -16,7 +16,8 @@
     "express": "^4.21.2",
     "playwright": "^1.50.1",
    "http-proxy-middleware": "^3.0.3",
-    "redis": "^4.7.0"
+    "redis": "^4.7.0",
+   "node-fetch": "^3.3.2"
   },
   "devDependencies": {
     "nodemon": "^3.1.9"
