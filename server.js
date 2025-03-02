@@ -8,13 +8,12 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// 🔹 Upstash Redis URL (Replace with your actual Upstash Redis URL)
-const REDIS_URL = process.env.REDIS_URL || "redis://default:AXzeAAIjcDEzMzNlODE2YjViNWU0ZWU2OGYzYTc5YzVmYzNhY2Q2ZHAxMA@modest-corgi-31966.upstash.io:6379";
-
 // ✅ Redis Setup
+const REDIS_URL = process.env.REDIS_URL || "YOUR_UPSTASH_REDIS_URL_HERE";
+
 const redisClient = redis.createClient({
     url: REDIS_URL,
-    socket: { tls: true } // Upstash requires TLS
+    socket: { tls: true }
 });
 
 redisClient.on("error", (err) => console.error("❌ Redis Error:", err));
@@ -23,7 +22,6 @@ redisClient.connect()
     .then(() => console.log("✅ Redis Connected"))
     .catch(err => console.error("❌ Redis Connection Failed:", err));
 
-// ✅ Proxy Route with Scraping & Redis Caching
 app.get("/proxy/fetch", async (req, res) => {
     const { url } = req.query;
     if (!url) return res.status(400).json({ error: "URL is required" });
@@ -31,7 +29,7 @@ app.get("/proxy/fetch", async (req, res) => {
     try {
         console.log(`Fetching URL: ${url}`);
 
-        // 🔹 Check Redis Cache
+        // ✅ Check Redis Cache
         const cachedData = await redisClient.get(url);
         if (cachedData) {
             console.log("✅ Cache hit");
@@ -40,18 +38,22 @@ app.get("/proxy/fetch", async (req, res) => {
 
         console.log("🚀 Cache miss, scraping...");
 
-        // 🔹 Launch Playwright Chromium (Faster & More Reliable)
-        const browser = await chromium.launch({ headless: true });
+        // ✅ Use Explicit Browser Path
+        const browser = await chromium.launch({
+            headless: true,
+            executablePath: "/opt/render/project/.cache/ms-playwright/chromium/chrome-linux/chrome"
+        });
+
         const page = await browser.newPage();
         await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
         const content = await page.content();
         await browser.close();
 
-        // 🔹 Parse Content with Cheerio
+        // ✅ Parse Content with Cheerio
         const $ = cheerio.load(content);
         const pageData = { title: $("title").text(), html: $.html() };
 
-        // 🔹 Cache in Redis for 5 mins
+        // ✅ Cache in Redis for 5 mins
         await redisClient.setEx(url, 300, JSON.stringify(pageData));
 
         console.log("✅ Data cached successfully");
