@@ -2,100 +2,96 @@ const express = require("express");
 const cors = require("cors");
 const redis = require("redis");
 const { chromium } = require("playwright");
-const fetch = require("node-fetch"); // Ensure fetch is available
+const cheerio = require("cheerio");
 const urlLib = require("url");
 
 const app = express();
-app.use(cors());
+
+// ✅ Configure CORS for Frontend
+app.use(cors({ origin: "http://localhost:5173" }));
 app.use(express.json());
 
+// ✅ Redis Setup
 const REDIS_URL = process.env.REDIS_URL || "redis://default:AXzeAAIjcDEzMzNlODE2YjViNWU0ZWU2OGYzYTc5YzVmYzNhY2Q2ZHAxMA@modest-corgi-31966.upstash.io:6379";
+
 const redisClient = redis.createClient({ url: REDIS_URL, socket: { tls: true } });
 
 redisClient.on("error", (err) => console.error("❌ Redis Error:", err));
-redisClient.connect().then(() => console.log("✅ Redis Connected")).catch((err) => console.error("❌ Redis Connection Failed:", err));
+
+redisClient
+  .connect()
+  .then(() => console.log("✅ Redis Connected"))
+  .catch((err) => console.error("❌ Redis Connection Failed:", err));
 
 app.get("/proxy/fetch", async (req, res) => {
-    const { url } = req.query;
-    if (!url) return res.status(400).json({ error: "URL is required" });
+  const { url } = req.query;
+  if (!url) return res.status(400).json({ error: "URL is required" });
 
-    try {
-        console.log(`Fetching URL: ${url}`);
+  try {
+    console.log(`Fetching URL: ${url}`);
 
-        // ✅ Check Redis Cache
-        const cachedData = await redisClient.get(url);
-        if (cachedData) {
-            console.log("✅ Cache hit");
-            return res.send(cachedData);
-        }
-
-        console.log("🚀 Cache miss, scraping...");
-
-        // ✅ Launch Playwright Browser
-        const browser = await chromium.launch({
-            headless: true,
-            executablePath: "/opt/render/project/src/node_modules/playwright-core/.local-browsers/chromium-1155/chrome-linux/chrome"
-        });
-
-        const page = await browser.newPage();
-
-        // ✅ Modify requests to serve assets via proxy
-        await page.route("**/*", async (route) => {
-            const request = route.request();
-            const reqUrl = request.url();
-
-            // Allow only valid URLs
-            if (!reqUrl.startsWith("http")) {
-                return route.continue();
-            }
-
-            // Skip unnecessary requests (ads, trackers)
-            if (reqUrl.includes("google-analytics") || reqUrl.includes("ads") || reqUrl.includes("tracking")) {
-                return route.abort();
-            }
-
-            // Proxy images, CSS, and scripts
-            if (["image", "stylesheet", "script"].includes(request.resourceType())) {
-                return route.continue({ url: `/proxy/static?url=${encodeURIComponent(reqUrl)}` });
-            }
-
-            return route.continue();
-        });
-
-        await page.goto(url, { waitUntil: "networkidle", timeout: 60000 });
-
-        // ✅ Get Full Page Content
-        const pageContent = await page.content();
-        await browser.close();
-
-        // ✅ Cache in Redis for 5 mins
-        await redisClient.setEx(url, 300, pageContent);
-
-        console.log("✅ Data cached successfully");
-
-        res.send(pageContent);
-    } catch (error) {
-        console.error("❌ Scraping Error:", error);
-        res.status(500).json({ error: "Failed to fetch website" });
+    // ✅ Check Redis Cache
+    const cachedData = await redisClient.get(url);
+    if (cachedData) {
+      console.log("✅ Cache hit");
+      return res.json(JSON.parse(cachedData));
     }
-});
 
-// ✅ Serve Static Assets via Proxy
-app.get("/proxy/static", async (req, res) => {
-    const { url } = req.query;
-    if (!url) return res.status(400).json({ error: "Asset URL is required" });
+    console.log("🚀 Cache miss, scraping...");
 
-    try {
-        const response = await fetch(url);
-        if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
+    // ✅ Use Explicit Browser Path
+    const browser = await chromium.launch({
+      headless: true,
+      executablePath:
+        "/opt/render/project/src/node_modules/playwright-core/.local-browsers/chromium-1155/chrome-linux/chrome",
+    });
 
-        const contentType = response.headers.get("content-type");
-        res.set("Content-Type", contentType);
-        res.send(await response.arrayBuffer());
-    } catch (error) {
-        console.error("❌ Error fetching asset:", error);
-        res.status(500).json({ error: "Failed to fetch asset" });
-    }
+    const page = await browser.newPage();
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
+
+    const content = await page.content();
+    const $ = cheerio.load(content);
+
+    const baseUrl = urlLib.parse(url).protocol + "//" + urlLib.parse(url).host;
+
+    // ✅ Extract & Fix Asset Links
+    const fixUrl = (src) => {
+      if (!src) return null;
+      return src.startsWith("http") ? src : baseUrl + src;
+    };
+
+    const styles = $("link[rel='stylesheet']")
+      .map((_, el) => fixUrl($(el).attr("href")))
+      .get();
+
+    const scripts = $("script[src]")
+      .map((_, el) => fixUrl($(el).attr("src")))
+      .get();
+
+    const images = $("img[src]")
+      .map((_, el) => fixUrl($(el).attr("src")))
+      .get();
+
+    const pageData = {
+      title: $("title").text(),
+      html: $.html(),
+      styles,
+      scripts,
+      images,
+    };
+
+    await browser.close();
+
+    // ✅ Cache in Redis for 5 mins
+    await redisClient.setEx(url, 300, JSON.stringify(pageData));
+
+    console.log("✅ Data cached successfully");
+
+    res.json(pageData);
+  } catch (error) {
+    console.error("❌ Scraping Error:", error);
+    res.status(500).json({ error: "Failed to fetch website" });
+  }
 });
 
 // ✅ Start Server
