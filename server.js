@@ -41,9 +41,11 @@ app.get("/proxy/fetch", async (req, res) => {
 
         // ✅ Use Explicit Browser Path
         const browser = await chromium.launch({
-            headless: true,
-            executablePath: "/opt/render/project/.cache/ms-playwright/chromium/chrome-linux/chrome"
-        });
+    headless: true,
+    executablePath: process.env.PLAYWRIGHT_BROWSERS_PATH 
+        ? process.env.PLAYWRIGHT_BROWSERS_PATH + "/chromium-1155/chrome-linux/chrome" 
+        : undefined
+});
 
         const page = await browser.newPage();
         await page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
