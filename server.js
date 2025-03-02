@@ -42,9 +42,7 @@ app.get("/proxy/fetch", async (req, res) => {
         // ✅ Use Explicit Browser Path
         const browser = await chromium.launch({
     headless: true,
-    executablePath: process.env.PLAYWRIGHT_BROWSERS_PATH 
-        ? process.env.PLAYWRIGHT_BROWSERS_PATH + "/chromium-1155/chrome-linux/chrome" 
-        : undefined
+    executablePath: '/opt/render/project/src/node_modules/playwright-core/.local-browsers/chromium-1155/chrome-linux/chrome'
 });
 
         const page = await browser.newPage();
