@@ -10,7 +10,7 @@ app.use(express.json());
 
 // ✅ Redis Setup
 const REDIS_URL = process.env.REDIS_URL || "redis://default:AXzeAAIjcDEzMzNlODE2YjViNWU0ZWU2OGYzYTc5YzVmYzNhY2Q2ZHAxMA@modest-corgi-31966.upstash.io:6379";
-;
+
 
 const redisClient = redis.createClient({
     url: REDIS_URL,
