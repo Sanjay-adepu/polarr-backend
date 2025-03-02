@@ -2,9 +2,11 @@ const express = require("express");
 const cors = require("cors");
 const redis = require("redis");
 const { chromium } = require("playwright");
+const fs = require("fs-extra");
+const path = require("path");
 
 const app = express();
-app.use(cors({ origin: "http://localhost:5173" }));
+app.use(cors({ origin: "*" }));
 app.use(express.json());
 
 // ✅ Redis Setup
@@ -21,6 +23,11 @@ redisClient.connect()
     .then(() => console.log("✅ Redis Connected"))
     .catch(err => console.error("❌ Redis Connection Failed:", err));
 
+// ✅ Serve Static Files
+const CACHE_DIR = path.join(__dirname, "cache");
+fs.ensureDirSync(CACHE_DIR);
+app.use("/cache", express.static(CACHE_DIR));
+
 app.get("/proxy/fetch", async (req, res) => {
     const { url } = req.query;
     if (!url) return res.status(400).json({ error: "URL is required" });
@@ -32,40 +39,73 @@ app.get("/proxy/fetch", async (req, res) => {
         const cachedData = await redisClient.get(url);
         if (cachedData) {
             console.log("✅ Cache hit");
-            return res.json(JSON.parse(cachedData));
+            return res.sendFile(path.join(CACHE_DIR, `${Buffer.from(url).toString("base64")}.html`));
         }
 
         console.log("🚀 Cache miss, scraping...");
 
-        // ✅ Use Playwright to Load Website with Resources  
-        const browser = await chromium.launch({  
-            headless: true,
-            executablePath: '/opt/render/project/src/node_modules/playwright-core/.local-browsers/chromium-1155/chrome-linux/chrome'
-        });
-
-        const page = await browser.newPage();  
-
+        // ✅ Launch Headless Browser
+        const browser = await chromium.launch({ headless: true });
+        const page = await browser.newPage();
         await page.goto(url, { waitUntil: "networkidle", timeout: 60000 });
 
-        // ✅ Get All Page Content  
+        // ✅ Capture Page Content  
         const pageData = await page.evaluate(() => {
             return {
                 title: document.title,
-                html: document.documentElement.outerHTML,
-                styles: Array.from(document.styleSheets).map(sheet => sheet.href).filter(Boolean),
-                scripts: Array.from(document.scripts).map(script => script.src).filter(Boolean),
-                images: Array.from(document.images).map(img => img.src)
+                html: document.documentElement.outerHTML
             };
         });
 
+        // ✅ Download Assets
+        const assetPromises = [];
+        const downloadAsset = async (assetUrl, folder) => {
+            try {
+                const response = await page.evaluate(async (url) => {
+                    const res = await fetch(url);
+                    return res.ok ? { buffer: await res.arrayBuffer(), type: res.headers.get("content-type") } : null;
+                }, assetUrl);
+
+                if (!response) return null;
+                const ext = response.type.includes("css") ? ".css" : response.type.includes("javascript") ? ".js" : path.extname(assetUrl);
+                const filename = Buffer.from(assetUrl).toString("base64") + ext;
+                const filePath = path.join(CACHE_DIR, folder, filename);
+                fs.ensureDirSync(path.dirname(filePath));
+                fs.writeFileSync(filePath, Buffer.from(response.buffer));
+
+                return `/cache/${folder}/${filename}`;
+            } catch (err) {
+                console.error(`❌ Failed to download asset: ${assetUrl}`, err);
+                return assetUrl; // Fallback to original URL
+            }
+        };
+
+        const styles = await page.evaluate(() => Array.from(document.styleSheets).map(sheet => sheet.href).filter(Boolean));
+        const scripts = await page.evaluate(() => Array.from(document.scripts).map(script => script.src).filter(Boolean));
+        const images = await page.evaluate(() => Array.from(document.images).map(img => img.src));
+
+        for (let style of styles) assetPromises.push(downloadAsset(style, "styles"));
+        for (let script of scripts) assetPromises.push(downloadAsset(script, "scripts"));
+        for (let image of images) assetPromises.push(downloadAsset(image, "images"));
+
+        const cachedAssets = await Promise.all(assetPromises);
+
+        // ✅ Rewrite HTML
+        let modifiedHTML = pageData.html;
+        styles.forEach((original, index) => modifiedHTML = modifiedHTML.replace(original, cachedAssets[index]));
+        scripts.forEach((original, index) => modifiedHTML = modifiedHTML.replace(original, cachedAssets[styles.length + index]));
+        images.forEach((original, index) => modifiedHTML = modifiedHTML.replace(original, cachedAssets[styles.length + scripts.length + index]));
+
         await browser.close();
 
-        // ✅ Cache in Redis for 5 mins  
-        await redisClient.setEx(url, 300, JSON.stringify(pageData));
+        // ✅ Cache in Redis & Save File
+        const cacheFilePath = path.join(CACHE_DIR, `${Buffer.from(url).toString("base64")}.html`);
+        fs.writeFileSync(cacheFilePath, modifiedHTML);
+        await redisClient.setEx(url, 300, "cached");
 
-        console.log("✅ Data cached successfully");
+        console.log("✅ Website cached successfully");
 
-        res.json(pageData);
+        res.sendFile(cacheFilePath);
     } catch (error) {
         console.error("❌ Scraping Error:", error);
         res.status(500).json({ error: "Failed to fetch website" });
