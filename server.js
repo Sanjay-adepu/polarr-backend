@@ -5,7 +5,8 @@ const { chromium } = require("playwright");
 const cheerio = require("cheerio");
 
 const app = express();
-app.use(cors());
+// ✅ Configure CORS for Frontend
+app.use(cors({ origin: "http://localhost:5173" }));
 app.use(express.json());
 
 // ✅ Redis Setup
