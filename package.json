@@ -19,6 +19,7 @@
     "redis": "^4.7.0",
         "fs-extra": "^11.3.0",
     "url": "^0.11.4",
+      "sharp": "^0.33.5",
        "node-fetch": "^2.7.0"
   },
   "devDependencies": {
